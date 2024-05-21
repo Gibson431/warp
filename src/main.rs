@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
+use defmt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio;
@@ -15,6 +15,11 @@ use embassy_time::{Duration, Ticker, Timer};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
+#[embassy_executor::task]
+async fn logger_task(driver: Driver<'static, USB>) {
+    embassy_usb_logger::run!(1024, log::LevelFilter::Debug, driver);
+}
+
 type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
 static LED: LedType = Mutex::new(None);
 
@@ -22,11 +27,6 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
-
-#[embassy_executor::task]
-async fn logger_task(driver: Driver<'static, USB>) {
-    embassy_usb_logger::run!(1024, log::LevelFilter::Debug, driver);
-}
 
 #[embassy_executor::task(pool_size = 2)]
 async fn heartbeat(name: &'static str, delay: Duration) {
@@ -38,10 +38,12 @@ async fn heartbeat(name: &'static str, delay: Duration) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) -> !{
+async fn main(spawner: Spawner) -> ! {
     let p = embassy_rp::init(Default::default());
     let driver = Driver::new(p.USB, Irqs);
     spawner.spawn(logger_task(driver)).unwrap();
+    Timer::after_secs(1).await;
+    log::info!("program started");
     let led = Output::new(AnyPin::from(p.PIN_25), Level::High);
 
     // inner scope is so that once the mutex is written to, the MutexGuard is dropped, thus the
@@ -50,8 +52,16 @@ async fn main(spawner: Spawner) -> !{
         *(LED.lock().await) = Some(led);
     }
 
-    unwrap!(spawner.spawn(heartbeat("task1", Duration::from_secs(3))));
-    unwrap!(spawner.spawn(heartbeat("task2", Duration::from_secs(5))));
+    spawner
+        .spawn(heartbeat("task1", Duration::from_secs(3)))
+        .unwrap();
+    spawner
+        .spawn(heartbeat("task2", Duration::from_secs(5)))
+        .unwrap();
+    if let Err(_) = spawner.spawn(heartbeat("task3", Duration::from_secs(5))) {
+        // SpawnError
+        log::info!("Should error: Too many heartbeat tasks active");
+    };
 
     let sda = p.PIN_14;
     let scl = p.PIN_15;
