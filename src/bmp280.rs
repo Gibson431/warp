@@ -56,8 +56,7 @@ impl<I2C: I2c> BMP280<I2C> {
             dig_p8: 0,
             dig_p9: 0,
         };
-        let id = chip.id()?;
-        if id == 0x58 {
+        if chip.id()? == 0x58 {
             chip.read_calibration()?;
         }
 
