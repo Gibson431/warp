@@ -1,6 +1,6 @@
 # Warp #
 
-A rust-based flight computer running on the RP2040 chip
+A rust-based sounding rocket flight computer running on the RP2040 chip
 
 ## Features ##
 
